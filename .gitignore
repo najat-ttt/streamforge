@@ -8,3 +8,5 @@ downloads/
 *.mp4
 *.mkv
 *.webm
+.idea/
+dist/
