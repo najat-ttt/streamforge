@@ -9,3 +9,9 @@ downloads/
 *.mkv
 *.webm
 .idea/
+.venv/
+.idea/
+downloads/
+dist/
+__pycache__/
+*.pyc
