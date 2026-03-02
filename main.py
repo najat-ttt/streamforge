@@ -50,6 +50,10 @@ def download(req: DownloadRequest):
         "status": "started"
     }
 
+@app.get("/")
+def home():
+    return {"message": "StreamForge API is running"}
+
 
 @app.get("/status/{download_id}")
 def get_status(download_id: str):
