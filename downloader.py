@@ -5,96 +5,95 @@ import threading
 import queue
 import os
 
-# Move temp away from C
-tempfile.tempdir = "E:/temp"
+# FIX: Use Linux-safe temp directory
+os.makedirs("/tmp", exist_ok=True)
+tempfile.tempdir = "/tmp"
+
+os.makedirs("downloads", exist_ok=True)
 
 downloads = {}
 
-# CONFIG
 MAX_PARALLEL_DOWNLOADS = 3
-
 download_queue = queue.Queue()
 
 
 # =========================
-# ANALYZE
+# ANALYZE (FIXED)
 # =========================
 def analyze_video(url):
-    ydl_opts = {
-        'quiet': True,
-        'skip_download': True,
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-
-    # PLAYLIST
-    if info.get('_type') == 'playlist':
-        videos = []
-
-        for entry in info.get("entries", []):
-            if not entry:
-                continue
-
-            vid = entry.get("id")
-            if not vid:
-                continue
-
-            videos.append({
-                "title": entry.get("title"),
-                "url": f"https://www.youtube.com/watch?v={vid}",
-            })
-
-        return {
-            "type": "playlist",
-            "title": info.get("title"),
-            "videos": videos
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'skip_download': True
         }
 
-    # SINGLE VIDEO (GET FULL DATA AGAIN)
-    ydl_opts_full = {
-        'quiet': True,
-        'skip_download': True
-    }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
-    with yt_dlp.YoutubeDL(ydl_opts_full) as ydl:
-        info = ydl.extract_info(url, download=False)
+        # PLAYLIST
+        if info.get('_type') == 'playlist':
+            videos = []
 
-    formats = []
-    seen = set()
+            for entry in info.get("entries", []):
+                if not entry:
+                    continue
 
-    for f in info.get('formats', []):
-        height = f.get('height')
-        if not height:
-            continue
+                vid = entry.get("id")
+                if not vid:
+                    continue
 
-        # only include formats that have video
-        if f.get("vcodec") == "none":
-            continue
+                videos.append({
+                    "title": entry.get("title"),
+                    "url": f"https://www.youtube.com/watch?v={vid}",
+                })
 
-        key = (height, f.get("ext"))
+            return {
+                "type": "playlist",
+                "title": info.get("title"),
+                "videos": videos
+            }
 
-        # avoid duplicates (same resolution)
-        if key in seen:
-            continue
-        seen.add(key)
+        # SINGLE VIDEO
+        formats = []
+        seen = set()
 
-        formats.append({
-            "format_id": f.get("format_id"),
-            "quality": f"{height}p",
-            "filesize": f.get("filesize"),
-            "ext": f.get("ext"),
-        })
+        for f in info.get('formats', []):
+            height = f.get('height')
+            if not height:
+                continue
 
-    # sort by quality descending
-    formats = sorted(formats, key=lambda x: int(x["quality"].replace("p", "")), reverse=True)
+            if f.get("vcodec") == "none":
+                continue
 
-    return {
-        "type": "video",
-        "title": info.get("title"),
-        "thumbnail": info.get("thumbnail"),
-        "formats": formats
-    }
+            key = (height, f.get("ext"))
+            if key in seen:
+                continue
+            seen.add(key)
+
+            formats.append({
+                "format_id": f.get("format_id"),
+                "quality": f"{height}p",
+                "filesize": f.get("filesize"),
+                "ext": f.get("ext"),
+            })
+
+        formats = sorted(
+            formats,
+            key=lambda x: int(x["quality"].replace("p", "")),
+            reverse=True
+        )
+
+        return {
+            "type": "video",
+            "title": info.get("title"),
+            "thumbnail": info.get("thumbnail"),
+            "formats": formats
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
 
 
 # =========================
@@ -115,7 +114,6 @@ def worker():
             download_queue.task_done()
 
 
-# Start workers
 for _ in range(MAX_PARALLEL_DOWNLOADS):
     threading.Thread(target=worker, daemon=True).start()
 
@@ -152,10 +150,8 @@ def run_download(url, format_id, download_id):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
 
-            # final file path
             filename = ydl.prepare_filename(info)
 
-            # ensure mp4 after merge
             if not filename.endswith(".mp4"):
                 filename = os.path.splitext(filename)[0] + ".mp4"
 
