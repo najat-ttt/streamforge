@@ -4,7 +4,7 @@ from typing import Dict
 from downloader import analyze_video, download_video, downloads
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+# from fastapi.staticfiles import StaticFiles
 import os
 import tempfile
 os.makedirs("downloads", exist_ok=True)
@@ -76,22 +76,22 @@ def get_file(download_id: str):
     )
 
 
-# =========================
-# FRONTEND (React build)
-# =========================
+# # =========================
+# # FRONTEND (React build)
+# # =========================
 
-# serve static assets
-app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+# # serve static assets
+# app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
 
 
-# catch-all route for React
-@app.get("/{full_path:path}")
-def serve_frontend(full_path: str):
-    file_path = os.path.join("dist", full_path)
+# # catch-all route for React
+# @app.get("/{full_path:path}")
+# def serve_frontend(full_path: str):
+#     file_path = os.path.join("dist", full_path)
 
-    # if file exists (js/css/image), serve it
-    if os.path.exists(file_path) and not os.path.isdir(file_path):
-        return FileResponse(file_path)
+#     # if file exists (js/css/image), serve it
+#     if os.path.exists(file_path) and not os.path.isdir(file_path):
+#         return FileResponse(file_path)
 
-    # otherwise serve React app
-    return FileResponse("dist/index.html")
+#     # otherwise serve React app
+#     return FileResponse("dist/index.html")
