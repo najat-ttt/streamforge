@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import os
+import tempfile
+os.makedirs("downloads", exist_ok=True)
+tempfile.tempdir = "/tmp"
 
 app = FastAPI()
 
