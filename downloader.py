@@ -15,7 +15,7 @@ def analyze_video(url):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             },
 
-            "cookiefile": "cookies.txt",
+            # "cookiefile": "cookies.txt",
 
             # Better extraction
             "nocheckcertificate": True,
