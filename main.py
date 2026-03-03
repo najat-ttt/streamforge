@@ -5,35 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-
-# =========================
-# CORS (IMPORTANT FOR VERCEL)
-# =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # later restrict to your domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# =========================
-# MODELS
-# =========================
 class URLRequest(BaseModel):
     url: str
 
 
-# =========================
-# ROUTES
-# =========================
 @app.get("/")
 def home():
-    return {
-        "message": "StreamForge API running (Stream Mode)",
-        "status": "ok"
-    }
+    return {"message": "StreamForge API running (stream mode)"}
 
 
 @app.post("/analyze")
