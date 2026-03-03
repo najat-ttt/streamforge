@@ -3,16 +3,32 @@ import yt_dlp
 
 def analyze_video(url):
     try:
+        # =========================
+        # CORE CONFIG (ANTI-BLOCK)
+        # =========================
         ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
+            "quiet": True,
+            "skip_download": True,
+
+            # 🔐 VERY IMPORTANT (fix bot detection)
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            },
+
+            "cookiefile": "cookies.txt",
+
+            # Better extraction
+            "nocheckcertificate": True,
+            "ignoreerrors": True,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # PLAYLIST
-        if info.get('_type') == 'playlist':
+        # =========================
+        # PLAYLIST HANDLING
+        # =========================
+        if info.get("_type") == "playlist":
             videos = []
 
             for entry in info.get("entries", []):
@@ -34,11 +50,14 @@ def analyze_video(url):
                 "videos": videos
             }
 
+        # =========================
         # SINGLE VIDEO
+        # =========================
         formats = []
         seen = set()
 
         for f in info.get("formats", []):
+            # Skip audio-only
             if f.get("vcodec") == "none":
                 continue
 
@@ -46,17 +65,22 @@ def analyze_video(url):
             if not height:
                 continue
 
-            key = (height, f.get("ext"))
+            ext = f.get("ext")
+
+            # Avoid duplicates (same resolution + ext)
+            key = (height, ext)
             if key in seen:
                 continue
             seen.add(key)
 
             formats.append({
                 "quality": f"{height}p",
-                "ext": f.get("ext"),
-                "url": f.get("url")
+                "ext": ext,
+                "url": f.get("url"),  # direct stream URL
+                "filesize": f.get("filesize") or f.get("filesize_approx"),
             })
 
+        # Sort best → worst
         formats = sorted(
             formats,
             key=lambda x: int(x["quality"].replace("p", "")),
@@ -71,4 +95,6 @@ def analyze_video(url):
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        return {
+            "error": str(e)
+        }
