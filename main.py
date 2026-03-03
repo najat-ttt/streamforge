@@ -1,26 +1,25 @@
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from downloader import get_stream_url
 from pydantic import BaseModel
+from downloader import analyze_video
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class URLRequest(BaseModel):
     url: str
 
+@app.get("/")
+def home():
+    return {"message": "StreamForge API running"}
 
 @app.post("/analyze")
 def analyze(req: URLRequest):
-    return get_stream_url(req.url)
-
-
-@app.get("/stream")
-def stream(url: str):
-    import requests
-
-    r = requests.get(url, stream=True)
-
-    return StreamingResponse(
-        r.iter_content(chunk_size=1024 * 1024),
-        media_type="video/mp4"
-    )
+    return analyze_video(req.url)
