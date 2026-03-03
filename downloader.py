@@ -9,21 +9,32 @@ def analyze_video(url):
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
-
-            # 🔐 VERY IMPORTANT (fix bot detection)
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            },
-
-            # "cookiefile": "cookies.txt",
-
-            # Better extraction
             "nocheckcertificate": True,
             "ignoreerrors": True,
+
+            # Mimic real browser
+            "http_headers": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            },
+
+            # Uncomment when you add cookies
+            # "cookiefile": "cookies.txt",
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+
+        # =========================
+        # 🚨 SAFETY CHECK
+        # =========================
+        if not info:
+            return {
+                "error": "Failed to fetch video info (YouTube blocked or invalid URL)"
+            }
 
         # =========================
         # PLAYLIST HANDLING
@@ -44,6 +55,9 @@ def analyze_video(url):
                     "url": f"https://www.youtube.com/watch?v={vid}",
                 })
 
+            if not videos:
+                return {"error": "Playlist is empty or blocked"}
+
             return {
                 "type": "playlist",
                 "title": info.get("title"),
@@ -57,6 +71,9 @@ def analyze_video(url):
         seen = set()
 
         for f in info.get("formats", []):
+            if not f:
+                continue
+
             # Skip audio-only
             if f.get("vcodec") == "none":
                 continue
@@ -67,7 +84,11 @@ def analyze_video(url):
 
             ext = f.get("ext")
 
-            # Avoid duplicates (same resolution + ext)
+            # 🚨 ensure stream URL exists
+            stream_url = f.get("url")
+            if not stream_url:
+                continue
+
             key = (height, ext)
             if key in seen:
                 continue
@@ -76,9 +97,17 @@ def analyze_video(url):
             formats.append({
                 "quality": f"{height}p",
                 "ext": ext,
-                "url": f.get("url"),  # direct stream URL
+                "url": stream_url,
                 "filesize": f.get("filesize") or f.get("filesize_approx"),
             })
+
+        # =========================
+        # 🚨 NO FORMAT FAIL SAFE
+        # =========================
+        if not formats:
+            return {
+                "error": "No downloadable formats found (possibly blocked by YouTube)"
+            }
 
         # Sort best → worst
         formats = sorted(
