@@ -1,37 +1,28 @@
 import yt_dlp
-import tempfile
-import uuid
-import threading
-import queue
-import os
-
-# FIX: Use Linux-safe temp directory
-os.makedirs("/tmp", exist_ok=True)
-tempfile.tempdir = "/tmp"
-
-os.makedirs("downloads", exist_ok=True)
-
-downloads = {}
-
-MAX_PARALLEL_DOWNLOADS = 3
-download_queue = queue.Queue()
 
 
-# =========================
-# ANALYZE (FIXED)
-# =========================
 def analyze_video(url):
     try:
         ydl_opts = {
-            'quiet': True,
-            'skip_download': True
+            "quiet": True,
+            "skip_download": True,
+            "nocheckcertificate": True,
+            "geo_bypass": True,
+
+            # 🔥 VERY IMPORTANT (fix bot detection)
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
+        # =========================
         # PLAYLIST
-        if info.get('_type') == 'playlist':
+        # =========================
+        if info.get("_type") == "playlist":
             videos = []
 
             for entry in info.get("entries", []):
@@ -53,30 +44,38 @@ def analyze_video(url):
                 "videos": videos
             }
 
+        # =========================
         # SINGLE VIDEO
+        # =========================
         formats = []
         seen = set()
 
-        for f in info.get('formats', []):
-            height = f.get('height')
-            if not height:
-                continue
-
+        for f in info.get("formats", []):
+            # skip invalid
             if f.get("vcodec") == "none":
                 continue
 
-            key = (height, f.get("ext"))
+            height = f.get("height")
+            if not height:
+                continue
+
+            ext = f.get("ext")
+
+            key = (height, ext)
             if key in seen:
                 continue
             seen.add(key)
 
             formats.append({
-                "format_id": f.get("format_id"),
                 "quality": f"{height}p",
-                "filesize": f.get("filesize"),
-                "ext": f.get("ext"),
+                "ext": ext,
+                "url": f.get("url"),
+                "acodec": f.get("acodec"),
+                "vcodec": f.get("vcodec"),
+                "filesize": f.get("filesize") or f.get("filesize_approx"),
             })
 
+        # 🔥 sort highest → lowest
         formats = sorted(
             formats,
             key=lambda x: int(x["quality"].replace("p", "")),
@@ -87,6 +86,7 @@ def analyze_video(url):
             "type": "video",
             "title": info.get("title"),
             "thumbnail": info.get("thumbnail"),
+            "duration": info.get("duration"),
             "formats": formats
         }
 
@@ -94,89 +94,3 @@ def analyze_video(url):
         return {
             "error": str(e)
         }
-
-
-# =========================
-# WORKER
-# =========================
-def worker():
-    while True:
-        task = download_queue.get()
-
-        if task is None:
-            break
-
-        url, format_id, download_id = task
-
-        try:
-            run_download(url, format_id, download_id)
-        finally:
-            download_queue.task_done()
-
-
-for _ in range(MAX_PARALLEL_DOWNLOADS):
-    threading.Thread(target=worker, daemon=True).start()
-
-
-# =========================
-# DOWNLOAD CORE
-# =========================
-def run_download(url, format_id, download_id):
-
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
-            downloaded = d.get('downloaded_bytes', 0)
-
-            percent = int(downloaded * 100 / total)
-
-            downloads[download_id]["progress"] = percent
-            downloads[download_id]["status"] = "downloading"
-
-        elif d['status'] == 'finished':
-            downloads[download_id]["status"] = "processing"
-
-    try:
-        downloads[download_id]["status"] = "downloading"
-
-        ydl_opts = {
-            'format': f"{format_id}+bestaudio/best",
-            'outtmpl': 'downloads/%(title)s.%(ext)s',
-            'merge_output_format': 'mp4',
-            'progress_hooks': [progress_hook],
-            'noplaylist': True
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-
-            filename = ydl.prepare_filename(info)
-
-            if not filename.endswith(".mp4"):
-                filename = os.path.splitext(filename)[0] + ".mp4"
-
-            downloads[download_id]["filename"] = filename
-
-        downloads[download_id]["status"] = "finished"
-        downloads[download_id]["progress"] = 100
-
-    except Exception as e:
-        downloads[download_id]["status"] = "error"
-        downloads[download_id]["error"] = str(e)
-
-
-# =========================
-# ADD TO QUEUE
-# =========================
-def download_video(url, format_id):
-    download_id = str(uuid.uuid4())
-
-    downloads[download_id] = {
-        "status": "queued",
-        "progress": 0,
-        "filename": None
-    }
-
-    download_queue.put((url, format_id, download_id))
-
-    return download_id
