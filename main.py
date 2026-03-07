@@ -23,10 +23,13 @@ from pythonjsonlogger import jsonlogger
 
 app = FastAPI()
 
-# Restrict CORS to the deployed frontend origin for security
+# Allow the frontend origin (Vercel) and the backend domain for testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://streamforge-naj.duckdns.org"],
+    allow_origins=[
+        "https://streamforge-frontend.vercel.app",
+        "https://streamforge-naj.duckdns.org",
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
