@@ -12,7 +12,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.errors import _rate_limit_exceeded_handler
+from fastapi.responses import JSONResponse
+
+# slowapi internals changed across versions; provide a stable handler here
+def _rate_limit_exceeded_handler(request, exc):
+    return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
 
 # JSON logging
 from pythonjsonlogger import jsonlogger
