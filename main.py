@@ -2,7 +2,7 @@ import logging
 import os
 import prometheus_client
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from downloader import analyze_video
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,7 +73,7 @@ def metrics():
 
 @app.post("/analyze")
 @limiter.limit("10/minute")
-def analyze(req: URLRequest):
+def analyze(req: URLRequest, request: Request):
     logging.getLogger("streamforge").info("analyze called", extra={"url": req.url})
     try:
         ANALYZE_COUNTER.inc()
