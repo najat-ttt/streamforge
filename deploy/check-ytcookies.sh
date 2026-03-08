@@ -7,7 +7,7 @@ CONF="/etc/default/check-ytcookies"
 
 FILE="/home/streamforge/firefox-cookies.txt"
 MAX_AGE=${MAX_AGE:-86400}
-WEBHOOK_URL=${WEBHOOK_URL:-}
+WEBHOOK_URL=${WEBHOOK_URL:-https://webhook.site/fa48a3f5-7337-4593-9e44-a507b6160816}
 # Default MAILTO set to requested address; can be overridden in /etc/default/check-ytcookies
 MAILTO=${MAILTO:-sheikhsiamnajat@gmail.com}
 

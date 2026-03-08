@@ -33,6 +33,8 @@ def analyze_video(url):
                 "Chrome/120.0.0.0 Safari/537.36"
             )
         },
+        # Force a JS runtime for yt-dlp EJS challenge solving
+        "js_runtimes": "deno",
     }
 
     if COOKIEFILE:
