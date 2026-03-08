@@ -34,10 +34,9 @@ app = FastAPI()
 # Allow the frontend origin (Vercel) and the backend domain for testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://streamforge-frontend.vercel.app",
-        "https://streamforge-naj.duckdns.org",
-    ],
+    # Allow all origins for now so the frontend (Vercel) can call the API.
+    # In production restrict this to the real frontend origins.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
@@ -255,3 +254,48 @@ def download_get(url: str, format_id: Optional[str] = None, filename: Optional[s
     # Provide a simple GET endpoint so the frontend can open a URL in a new tab.
     body = DownloadRequest(url=url, format_id=format_id, filename=filename)
     return download(body, request)
+
+
+from urllib.parse import urlparse
+
+
+@app.get("/proxy")
+@limiter.limit("30/minute")
+def proxy(url: str):
+    """Proxy limited external resources (manifests/segments) through the server.
+
+    Only allow known video hosts to avoid open proxy abuse.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return JSONResponse(status_code=400, content={"detail": "Invalid URL"})
+
+    host = (parsed.hostname or "").lower()
+    allowed_suffixes = ("googlevideo.com", "youtube.com", "ytimg.com")
+    if not any(host.endswith(s) for s in allowed_suffixes):
+        return JSONResponse(status_code=403, content={"detail": "Forbidden host"})
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; StreamForge/1.0)"}
+    try:
+        upstream = requests.get(url, stream=True, timeout=15, headers=headers)
+    except Exception as e:
+        logging.getLogger("streamforge").warning("proxy upstream failed", extra={"error": str(e)})
+        return JSONResponse(status_code=502, content={"detail": "Upstream fetch failed"})
+
+    content_type = upstream.headers.get("Content-Type", "application/octet-stream")
+    def _gen():
+        try:
+            for chunk in upstream.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    resp_headers = {}
+    if upstream.headers.get("Content-Length"):
+        resp_headers["Content-Length"] = upstream.headers.get("Content-Length")
+
+    return StreamingResponse(_gen(), media_type=content_type, headers=resp_headers)
