@@ -1,0 +1,15 @@
+[Unit]
+Description=Playwright cookie refresh (streamforge)
+After=network.target
+
+[Service]
+User=streamforge
+Group=streamforge
+Type=oneshot
+WorkingDirectory=/home/streamforge
+Environment=DISPLAY=:1
+Environment=XDG_RUNTIME_DIR=/run/user/110
+ExecStart=/home/streamforge/venv/bin/python /home/streamforge/deploy/refresh_cookies.py
+
+[Install]
+WantedBy=multi-user.target
