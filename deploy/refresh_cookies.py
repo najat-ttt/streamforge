@@ -86,6 +86,18 @@ def main() -> int:
     ff_cookies = read_firefox_cookies(cookies_db)
     logging.info("Read %d cookies from firefox sqlite", len(ff_cookies))
 
+    # Write a fallback netscape-format cookies file immediately from sqlite
+    try:
+        if ff_cookies:
+            write_netscape_cookies(ff_cookies, OUTPUT_COOKIES)
+            logging.info("Wrote fallback %d cookies to %s", len(ff_cookies), OUTPUT_COOKIES)
+            try:
+                (LOG_FILE.parent / "playwright-refresh.fallback_written").write_text("fallback\n")
+            except Exception:
+                pass
+    except Exception:
+        logging.exception("Failed to write fallback cookies file")
+
     try:
         with sync_playwright() as p:
             # create a temporary profile for Playwright to avoid locking the real profile
