@@ -212,32 +212,32 @@ def download(req: DownloadRequest, request: Request):
 
     src_url = chosen.get("url")
 
-        # if already a progressive file, proxy it through the server so we can
-        # set `Content-Disposition: attachment` and force a Save dialog in browsers.
-        if chosen.get("ext") in ("mp4", "webm", "mkv"):
+    # if already a progressive file, proxy it through the server so we can
+    # set `Content-Disposition: attachment` and force a Save dialog in browsers.
+    if chosen.get("ext") in ("mp4", "webm", "mkv"):
+        try:
+            upstream = requests.get(src_url, stream=True, timeout=15)
+        except Exception as e:
+            logger.warning("upstream fetch failed", extra={"error": str(e)})
+            return JSONResponse(status_code=502, content={"detail": "Failed to fetch upstream media"})
+
+        content_type = upstream.headers.get("Content-Type", "application/octet-stream")
+        content_length = upstream.headers.get("Content-Length")
+        def _proxy_gen():
             try:
-                upstream = requests.get(src_url, stream=True, timeout=15)
-            except Exception as e:
-                logger.warning("upstream fetch failed", extra={"error": str(e)})
-                return JSONResponse(status_code=502, content={"detail": "Failed to fetch upstream media"})
-
-            content_type = upstream.headers.get("Content-Type", "application/octet-stream")
-            content_length = upstream.headers.get("Content-Length")
-            def _proxy_gen():
+                for chunk in upstream.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+            finally:
                 try:
-                    for chunk in upstream.iter_content(chunk_size=65536):
-                        if chunk:
-                            yield chunk
-                finally:
-                    try:
-                        upstream.close()
-                    except Exception:
-                        pass
+                    upstream.close()
+                except Exception:
+                    pass
 
-            headers = {"Content-Disposition": f'attachment; filename="{req.filename or _sanitize_filename(info.get("title"))}.mp4"'}
-            if content_length:
-                headers["Content-Length"] = content_length
-            return StreamingResponse(_proxy_gen(), media_type=content_type, headers=headers)
+        headers = {"Content-Disposition": f'attachment; filename="{req.filename or _sanitize_filename(info.get("title"))}.mp4"'}
+        if content_length:
+            headers["Content-Length"] = content_length
+        return StreamingResponse(_proxy_gen(), media_type=content_type, headers=headers)
 
     # otherwise stream via ffmpeg
     title = info.get("title")
