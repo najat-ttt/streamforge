@@ -10,8 +10,10 @@ Group=streamforge
 # Working directory of the backend repository
 WorkingDirectory=/home/streamforge/streamforge-backend
 
-# Path to virtualenv 'bin' directory (replace with your venv path)
-Environment="PATH=/home/streamforge/venv/bin"
+# Environment: include deno bin and virtualenv 'bin' directory
+# Replace with your deployment paths if different.
+Environment=COOKIEFILE=/home/streamforge/firefox-cookies.txt
+Environment="PATH=/home/streamforge/.deno/bin:/home/streamforge/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 
 # ExecStart runs uvicorn from the virtualenv
 ExecStart=/home/streamforge/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
