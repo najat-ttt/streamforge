@@ -1,0 +1,6 @@
+[Unit]
+Description=Check Playwright yt cookies freshness
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash /home/streamforge/streamforge-backend/deploy/check-ytcookies.sh

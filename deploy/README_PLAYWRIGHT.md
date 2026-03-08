@@ -66,6 +66,40 @@ sudo chown streamforge:streamforge /home/streamforge/firefox-cookies.txt
 sudo chmod 600 /home/streamforge/firefox-cookies.txt
 ```
 
+## Daily health check (optional)
+
+The repository includes a simple healthcheck script, systemd service and timer in `deploy/` you can install on the VM to alert if the cookie file is missing or older than a configurable age.
+
+Files:
+
+- `deploy/check-ytcookies.sh` — healthcheck script (reads `/etc/default/check-ytcookies` for config)
+- `deploy/check-ytcookies.service` — systemd unit
+- `deploy/check-ytcookies.timer` — systemd timer
+
+Install on the VM (example):
+
+```bash
+sudo cp /home/streamforge/streamforge-backend/deploy/check-ytcookies.sh /home/streamforge/check-ytcookies.sh
+sudo chmod +x /home/streamforge/check-ytcookies.sh
+sudo cp /home/streamforge/streamforge-backend/deploy/check-ytcookies.service /etc/systemd/system/
+sudo cp /home/streamforge/streamforge-backend/deploy/check-ytcookies.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now check-ytcookies.timer
+```
+
+Configuration (optional): create `/etc/default/check-ytcookies` with variables you want to change:
+
+```
+# maximum accepted age (seconds)
+MAX_AGE=86400
+# optional webhook URL to POST alerts to
+WEBHOOK_URL=https://hooks.example.com/your-path
+# optional mail recipient (requires `mail` command configured)
+MAILTO=ops@example.com
+```
+
+The script will POST a JSON payload to `WEBHOOK_URL` or send mail to `MAILTO` when the cookie file is missing or stale.
+
 ## Notes
 
 - The script uses the existing Firefox profile at `/home/streamforge/.mozilla/firefox/streamforge-profile`.
