@@ -6,10 +6,15 @@ After=network.target
 User=streamforge
 Group=streamforge
 Type=oneshot
-WorkingDirectory=/home/streamforge
+WorkingDirectory=/home/streamforge/streamforge-backend
 Environment=DISPLAY=:1
 Environment=XDG_RUNTIME_DIR=/run/user/110
-ExecStart=/home/streamforge/venv/bin/python /home/streamforge/deploy/refresh_cookies.py
+# Run the refresh script from the repository venv
+ExecStart=/home/streamforge/venv/bin/python /home/streamforge/streamforge-backend/deploy/refresh_cookies.py
+# During initial verification, avoid automatic restarts so failures are visible
+Restart=no
+# Allow longer startup (Playwright/browser may take time)
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target

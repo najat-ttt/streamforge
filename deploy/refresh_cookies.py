@@ -151,6 +151,13 @@ def main() -> int:
                     browser.close()
     except Exception:
         logging.exception("Playwright refresh failed")
+        # If we already wrote the fallback cookies file from sqlite, treat as success
+        try:
+            if OUTPUT_COOKIES.exists():
+                logging.info("Fallback cookie file exists, exiting 0")
+                return 0
+        except Exception:
+            pass
         return 1
 
     logging.info("Playwright refresh finished")
