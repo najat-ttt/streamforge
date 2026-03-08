@@ -211,9 +211,10 @@ def download(req: DownloadRequest, request: Request):
 
     src_url = chosen.get("url")
 
-    # if progressive, redirect the client
+        # if already a progressive file, redirect client to the source URL
+        # Use 303 See Other so clients follow with GET (avoids reposting JSON body)
     if chosen.get("ext") in ("mp4", "webm", "mkv"):
-        return RedirectResponse(url=src_url)
+            return RedirectResponse(url=src_url, status_code=303)
 
     # otherwise stream via ffmpeg
     title = info.get("title")
