@@ -261,7 +261,7 @@ from urllib.parse import urlparse
 
 @app.get("/proxy")
 @limiter.limit("30/minute")
-def proxy(url: str):
+def proxy(url: str, request: Request):
     """Proxy limited external resources (manifests/segments) through the server.
 
     Only allow known video hosts to avoid open proxy abuse.
