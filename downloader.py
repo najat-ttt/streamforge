@@ -34,7 +34,8 @@ def analyze_video(url):
             )
         },
         # Force a JS runtime for yt-dlp EJS challenge solving
-        "js_runtimes": "deno",
+        # yt-dlp expects a dict of runtimes -> config (not a plain string)
+        "js_runtimes": {"deno": {}},
     }
 
     if COOKIEFILE:
