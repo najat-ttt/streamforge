@@ -13,6 +13,7 @@ import shlex
 import re
 import os
 import yt_dlp
+import requests
 
 # Rate limiting
 from slowapi import Limiter
@@ -211,10 +212,32 @@ def download(req: DownloadRequest, request: Request):
 
     src_url = chosen.get("url")
 
-        # if already a progressive file, redirect client to the source URL
-        # Use 303 See Other so clients follow with GET (avoids reposting JSON body)
-    if chosen.get("ext") in ("mp4", "webm", "mkv"):
-            return RedirectResponse(url=src_url, status_code=303)
+        # if already a progressive file, proxy it through the server so we can
+        # set `Content-Disposition: attachment` and force a Save dialog in browsers.
+        if chosen.get("ext") in ("mp4", "webm", "mkv"):
+            try:
+                upstream = requests.get(src_url, stream=True, timeout=15)
+            except Exception as e:
+                logger.warning("upstream fetch failed", extra={"error": str(e)})
+                return JSONResponse(status_code=502, content={"detail": "Failed to fetch upstream media"})
+
+            content_type = upstream.headers.get("Content-Type", "application/octet-stream")
+            content_length = upstream.headers.get("Content-Length")
+            def _proxy_gen():
+                try:
+                    for chunk in upstream.iter_content(chunk_size=65536):
+                        if chunk:
+                            yield chunk
+                finally:
+                    try:
+                        upstream.close()
+                    except Exception:
+                        pass
+
+            headers = {"Content-Disposition": f'attachment; filename="{req.filename or _sanitize_filename(info.get("title"))}.mp4"'}
+            if content_length:
+                headers["Content-Length"] = content_length
+            return StreamingResponse(_proxy_gen(), media_type=content_type, headers=headers)
 
     # otherwise stream via ffmpeg
     title = info.get("title")
@@ -222,3 +245,11 @@ def download(req: DownloadRequest, request: Request):
     generator = _ffmpeg_stream_generator(src_url)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(generator, media_type="video/mp4", headers=headers)
+
+
+@app.get("/download")
+@limiter.limit(DOWNLOAD_LIMIT)
+def download_get(url: str, format_id: Optional[str] = None, filename: Optional[str] = None, request: Request = None):
+    # Provide a simple GET endpoint so the frontend can open a URL in a new tab.
+    body = DownloadRequest(url=url, format_id=format_id, filename=filename)
+    return download(body, request)
