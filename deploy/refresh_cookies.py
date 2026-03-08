@@ -35,12 +35,20 @@ def read_firefox_cookies(sqlite_path: Path):
         con.close()
     cookies = []
     for r in rows:
+        # Normalize expiry: Playwright requires -1 for session cookies or a positive unix timestamp
+        expiry_raw = r["expiry"]
+        try:
+            exp = int(expiry_raw) if expiry_raw is not None else -1
+        except Exception:
+            exp = -1
+        if exp <= 0:
+            exp = -1
         cookies.append({
             "name": r["name"],
             "value": r["value"],
             "domain": r["host"],
             "path": r["path"],
-            "expires": int(r["expiry"]) if r["expiry"] else None,
+            "expires": exp,
             "secure": bool(r["isSecure"]),
             "httpOnly": bool(r["isHttpOnly"]),
         })
@@ -67,6 +75,11 @@ def main() -> int:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=str(LOG_FILE), level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Playwright refresh started")
+    # marker so we can tell systemd reached the script
+    try:
+        (LOG_FILE.parent / "playwright-refresh.start").write_text("started\n")
+    except Exception:
+        pass
 
     # Try to read Firefox cookies.sqlite from profile (non-locking read)
     cookies_db = PROFILE_DIR / "cookies.sqlite"
@@ -100,6 +113,10 @@ def main() -> int:
                         # Playwright requires a page to set cookies for some browsers
                         page = context.new_page()
                         page.goto("https://www.youtube.com/", timeout=60000)
+                        # ensure expires values are Playwright-compatible (-1 or positive int)
+                        for c in to_add:
+                            if not isinstance(c.get("expires"), int) or c.get("expires") <= 0:
+                                c["expires"] = -1
                         context.add_cookies(to_add)
                     else:
                         page = context.new_page()
@@ -114,6 +131,10 @@ def main() -> int:
                     exported = context.cookies()
                     write_netscape_cookies(exported, OUTPUT_COOKIES)
                     logging.info("Exported %d cookies to %s", len(exported), OUTPUT_COOKIES)
+                    try:
+                        (LOG_FILE.parent / "playwright-refresh.finished").write_text("ok\n")
+                    except Exception:
+                        pass
                 finally:
                     browser.close()
     except Exception:
