@@ -12,7 +12,8 @@ Environment=XDG_RUNTIME_DIR=/run/user/110
 # Run the refresh script from the repository venv
 ExecStart=/home/streamforge/venv/bin/python /home/streamforge/streamforge-backend/deploy/refresh_cookies.py
 # During initial verification, avoid automatic restarts so failures are visible
-Restart=no
+# Allow systemd to retry on transient failures
+Restart=on-failure
 # Allow longer startup (Playwright/browser may take time)
 TimeoutStartSec=300
 
