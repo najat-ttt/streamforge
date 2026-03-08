@@ -45,6 +45,27 @@ sudo -u streamforge /home/streamforge/venv/bin/python /home/streamforge/deploy/r
 tail -n 200 /home/streamforge/playwright-refresh.log
 ```
 
+## Log rotation
+
+Place the provided logrotate snippet on the host to keep logs bounded:
+
+```bash
+sudo cp /home/streamforge/streamforge-backend/deploy/logrotate-streamforge-playwright /etc/logrotate.d/streamforge-playwright
+sudo logrotate -f /etc/logrotate.d/streamforge-playwright
+```
+
+## File locations and permissions
+
+- Cookie output: `/home/streamforge/firefox-cookies.txt`
+- Playwright logs: `/home/streamforge/playwright-refresh.log`
+
+Ensure only the `streamforge` user can read the cookie file:
+
+```bash
+sudo chown streamforge:streamforge /home/streamforge/firefox-cookies.txt
+sudo chmod 600 /home/streamforge/firefox-cookies.txt
+```
+
 ## Notes
 
 - The script uses the existing Firefox profile at `/home/streamforge/.mozilla/firefox/streamforge-profile`.
