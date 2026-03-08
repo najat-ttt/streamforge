@@ -215,12 +215,14 @@ def download(req: DownloadRequest, request: Request):
     # if already a progressive file, proxy it through the server so we can
     # set `Content-Disposition: attachment` and force a Save dialog in browsers.
     if chosen.get("ext") in ("mp4", "webm", "mkv"):
+        logger.info("chosen progressive format", extra={"ext": chosen.get("ext"), "src_url": src_url})
         try:
-            upstream = requests.get(src_url, stream=True, timeout=15)
+            upstream = requests.get(src_url, stream=True, timeout=15, headers={"User-Agent": ydl_opts["http_headers"]["User-Agent"], "Referer": "https://www.youtube.com/"})
         except Exception as e:
             logger.warning("upstream fetch failed", extra={"error": str(e)})
             return JSONResponse(status_code=502, content={"detail": "Failed to fetch upstream media"})
 
+        logger.info("upstream response", extra={"status_code": getattr(upstream, "status_code", None), "headers": dict(upstream.headers)})
         content_type = upstream.headers.get("Content-Type", "application/octet-stream")
         content_length = upstream.headers.get("Content-Length")
         def _proxy_gen():
