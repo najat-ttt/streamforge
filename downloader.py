@@ -101,6 +101,7 @@ def analyze_video(url):
                     continue
                 seen.add(key)
                 formats.append({
+                    "format_id": f.get("format_id") or f.get("format"),
                     "quality": f"{height}p",
                     "ext": ext,
                     "url": stream_url,
