@@ -259,7 +259,7 @@ def download_get(url: str, format_id: Optional[str] = None, filename: Optional[s
 from urllib.parse import urlparse
 
 
-@app.get("/proxy")
+@app.api_route("/proxy", methods=["GET", "HEAD", "OPTIONS"])
 @limiter.limit("30/minute")
 def proxy(url: str, request: Request):
     """Proxy limited external resources (manifests/segments) through the server.
@@ -275,9 +275,17 @@ def proxy(url: str, request: Request):
     if not any(host.endswith(s) for s in allowed_suffixes):
         return JSONResponse(status_code=403, content={"detail": "Forbidden host"})
 
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; StreamForge/1.0)"}
+    # Forward relevant client headers (Range etc.) to upstream to support partial requests
+    forward_headers = {"User-Agent": "Mozilla/5.0 (compatible; StreamForge/1.0)"}
+    incoming_range = request.headers.get("range")
+    if incoming_range:
+        forward_headers["Range"] = incoming_range
+    incoming_referer = request.headers.get("referer") or request.headers.get("referrer")
+    if incoming_referer:
+        forward_headers["Referer"] = incoming_referer
+
     try:
-        upstream = requests.get(url, stream=True, timeout=15, headers=headers)
+        upstream = requests.get(url, stream=True, timeout=15, headers=forward_headers)
     except Exception as e:
         logging.getLogger("streamforge").warning("proxy upstream failed", extra={"error": str(e)})
         return JSONResponse(status_code=502, content={"detail": "Upstream fetch failed"})
