@@ -366,6 +366,17 @@ def proxy(url: str, request: Request):
     if content_type:
         resp_headers["Content-Type"] = content_type
 
+    # Add cross-origin headers so the browser can load segmented media
+    origin = request.headers.get("origin")
+    if origin:
+        resp_headers["Access-Control-Allow-Origin"] = origin
+        resp_headers["Vary"] = "Origin"
+    else:
+        resp_headers["Access-Control-Allow-Origin"] = "*"
+
+    # Allow the resource to be used cross-origin by media elements
+    resp_headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+
     status_code = getattr(upstream, "status_code", 200) or 200
 
     return StreamingResponse(_gen(), status_code=status_code, media_type=content_type, headers=resp_headers)
