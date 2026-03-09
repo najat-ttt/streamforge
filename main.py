@@ -117,11 +117,25 @@ def _sanitize_filename(name: str) -> str:
 
 
 def _ffmpeg_stream_generator(input_url: str):
+    # Improve HTTP/HLS stability: disable persistent HTTP connections (multiple
+    # hosts in a manifest can cause "Cannot reuse HTTP connection for different host")
+    # and set a User-Agent so upstream responds correctly.
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
+        # disable persistent HTTP connections so ffmpeg doesn't try to reuse a
+        # single connection for chunks hosted on different domains
+        "-http_persistent",
+        "0",
+        "-user_agent",
+        user_agent,
         "-i",
         input_url,
         "-c",
