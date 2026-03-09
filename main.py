@@ -126,6 +126,9 @@ def _ffmpeg_stream_generator(input_url: str):
         input_url,
         "-c",
         "copy",
+        # Convert ADTS AAC to MP4-friendly stream when needed
+        "-bsf:a",
+        "aac_adtstoasc",
         "-f",
         "mp4",
         "-movflags",
