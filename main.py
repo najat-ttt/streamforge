@@ -323,8 +323,12 @@ def proxy(url: str, request: Request):
     if not any(host.endswith(s) for s in allowed_suffixes):
         return JSONResponse(status_code=403, content={"detail": "Forbidden host"})
 
-    # Forward relevant client headers (Range etc.) to upstream to support partial requests
-    forward_headers = {"User-Agent": "Mozilla/5.0 (compatible; StreamForge/1.0)"}
+    # Forward relevant client headers (Range etc.) to upstream to support partial requests.
+    # Request uncompressed responses from upstream to avoid decoding mismatches
+    forward_headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; StreamForge/1.0)",
+        "Accept-Encoding": "identity",
+    }
     incoming_range = request.headers.get("range")
     if incoming_range:
         forward_headers["Range"] = incoming_range
@@ -353,7 +357,7 @@ def proxy(url: str, request: Request):
     # Preserve important headers and the upstream status code so the browser
     # can correctly handle range requests (206 Partial Content) and streaming
     resp_headers = {}
-    for h in ("Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control", "Content-Encoding"):
+    for h in ("Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control"):
         v = upstream.headers.get(h)
         if v:
             resp_headers[h] = v
