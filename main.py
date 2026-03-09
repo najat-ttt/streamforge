@@ -147,6 +147,19 @@ def _ffmpeg_stream_generator(input_url: str):
         proc.wait()
 
 
+def _is_manifest_url(url: str) -> bool:
+    if not url:
+        return False
+    low = url.lower()
+    # common manifest indicators
+    if ".m3u8" in low or "/api/manifest" in low or "playlist/index.m3u8" in low or "manifest.googlevideo.com" in low:
+        return True
+    # query params sometimes indicate HLS/DASH
+    if "mime=" in low and ("mpegurl" in low or "mpegts" in low or "application/vnd.apple.mpegurl" in low):
+        return True
+    return False
+
+
 @app.post("/download")
 @limiter.limit(DOWNLOAD_LIMIT)
 def download(req: DownloadRequest, request: Request):
@@ -211,9 +224,9 @@ def download(req: DownloadRequest, request: Request):
 
     src_url = chosen.get("url")
 
-    # if already a progressive file, proxy it through the server so we can
-    # set `Content-Disposition: attachment` and force a Save dialog in browsers.
-    if chosen.get("ext") in ("mp4", "webm", "mkv"):
+    # if already a progressive file and NOT a manifest URL, proxy it through the server
+    # so we can set `Content-Disposition: attachment` and force a Save dialog in browsers.
+    if chosen.get("ext") in ("mp4", "webm", "mkv") and not _is_manifest_url(src_url):
         logger.info("chosen progressive format", extra={"ext": chosen.get("ext"), "src_url": src_url})
         try:
             upstream = requests.get(src_url, stream=True, timeout=15, headers={"User-Agent": ydl_opts["http_headers"]["User-Agent"], "Referer": "https://www.youtube.com/"})
@@ -240,7 +253,7 @@ def download(req: DownloadRequest, request: Request):
             headers["Content-Length"] = content_length
         return StreamingResponse(_proxy_gen(), media_type=content_type, headers=headers)
 
-    # otherwise stream via ffmpeg
+    # otherwise stream via ffmpeg (handles HLS/DASH manifests and fragmented streams)
     title = info.get("title")
     filename = req.filename or f"{_sanitize_filename(title)}.mp4"
     generator = _ffmpeg_stream_generator(src_url)
