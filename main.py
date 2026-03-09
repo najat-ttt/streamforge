@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from typing import Optional
 import subprocess
+import threading
 import shlex
 import re
 import os
@@ -131,7 +132,24 @@ def _ffmpeg_stream_generator(input_url: str):
         "frag_keyframe+empty_moov",
         "pipe:1",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    # Log ffmpeg stderr in background so we can diagnose failures
+    def _log_stderr():
+        logger = logging.getLogger("streamforge")
+        try:
+            while True:
+                line = proc.stderr.readline()
+                if not line:
+                    break
+                try:
+                    logger.error("ffmpeg: %s", line.decode(errors="ignore").rstrip())
+                except Exception:
+                    logger.error("ffmpeg: (binary data)")
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_log_stderr, daemon=True)
+    t.start()
     try:
         while True:
             chunk = proc.stdout.read(65536)
