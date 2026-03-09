@@ -105,7 +105,8 @@ def analyze(req: URLRequest, request: Request):
         ANALYZE_COUNTER.inc()
     except Exception:
         pass
-    return analyze_video(req.url)
+    normalized = _normalize_youtube_url(req.url)
+    return analyze_video(normalized)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -114,6 +115,44 @@ def _sanitize_filename(name: str) -> str:
     name = re.sub(r"[^A-Za-z0-9 _\-\.()]", "", name)
     name = name.strip()
     return name[:200]
+
+
+def _normalize_youtube_url(url: str) -> str:
+    """Normalize common YouTube URL variants to a canonical watch URL.
+
+    Handles:
+    - youtu.be short links
+    - full watch URLs with extra params
+    - /shorts/ URLs
+    - urls containing a `v=` query
+    If no YouTube id found, returns the original URL.
+    """
+    if not url:
+        return url
+    try:
+        p = urlparse(url)
+        host = (p.hostname or "").lower()
+        # short link e.g. https://youtu.be/VIDEO
+        if host.endswith("youtu.be"):
+            vid = p.path.lstrip("/")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}"
+
+        # youtube full domains
+        if host.endswith("youtube.com") or host.endswith("youtube-nocookie.com"):
+            # check query param v
+            qs = dict([x.split("=", 1) for x in p.query.split("&") if "=" in x]) if p.query else {}
+            if "v" in qs:
+                return f"https://www.youtube.com/watch?v={qs['v']}"
+            # /shorts/<id>
+            if p.path.startswith("/shorts/"):
+                vid = p.path.split("/", 2)[2] if len(p.path.split("/")) > 2 else None
+                if vid:
+                    return f"https://www.youtube.com/watch?v={vid}"
+
+        return url
+    except Exception:
+        return url
 
 
 def _ffmpeg_stream_generator(input_url: str):
@@ -220,9 +259,10 @@ def download(req: DownloadRequest, request: Request):
     if cookie:
         ydl_opts["cookiefile"] = cookie
 
+    normalized = _normalize_youtube_url(req.url)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(req.url, download=False)
+            info = ydl.extract_info(normalized, download=False)
     except Exception as e:
         logger.warning("yt-dlp extract failed", extra={"error": str(e)})
         return JSONResponse(status_code=500, content={"detail": "Failed to extract video info"})
@@ -319,7 +359,15 @@ def proxy(url: str, request: Request):
         return JSONResponse(status_code=400, content={"detail": "Invalid URL"})
 
     host = (parsed.hostname or "").lower()
-    allowed_suffixes = ("googlevideo.com", "youtube.com", "ytimg.com")
+    # Allow common YouTube-related hosts (manifest/segments, static assets, short links)
+    allowed_suffixes = (
+        "googlevideo.com",
+        "youtube.com",
+        "ytimg.com",
+        "youtu.be",
+        "youtube-nocookie.com",
+        "youtube.googleapis.com",
+    )
     if not any(host.endswith(s) for s in allowed_suffixes):
         return JSONResponse(status_code=403, content={"detail": "Forbidden host"})
 
@@ -335,6 +383,20 @@ def proxy(url: str, request: Request):
     incoming_referer = request.headers.get("referer") or request.headers.get("referrer")
     if incoming_referer:
         forward_headers["Referer"] = incoming_referer
+
+    # Handle CORS preflight explicitly so browsers can validate Range requests
+    if request.method == "OPTIONS":
+        cors_headers = {}
+        origin = request.headers.get("origin")
+        if origin:
+            cors_headers["Access-Control-Allow-Origin"] = origin
+            cors_headers["Vary"] = "Origin"
+        else:
+            cors_headers["Access-Control-Allow-Origin"] = "*"
+        cors_headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+        cors_headers["Access-Control-Allow-Headers"] = "Range, Accept, Origin, Content-Type"
+        cors_headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length, Content-Encoding"
+        return JSONResponse(status_code=204, content=None, headers=cors_headers)
 
     try:
         upstream = requests.get(url, stream=True, timeout=15, headers=forward_headers)
@@ -376,6 +438,11 @@ def proxy(url: str, request: Request):
 
     # Allow the resource to be used cross-origin by media elements
     resp_headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    # Expose range-related headers to the browser
+    resp_headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length, Content-Encoding"
+    # Allow credentials optionally if environment enables it (default: no)
+    if os.getenv("ALLOW_CREDENTIALS", "false").lower() in ("1", "true", "yes"):
+        resp_headers["Access-Control-Allow-Credentials"] = "true"
 
     status_code = getattr(upstream, "status_code", 200) or 200
 
