@@ -398,6 +398,549 @@ Microsoft Azure Virtual Machine
 
 Specs:
 
+```
+OS: Ubuntu 24.04 LTS
+CPU: 1 vCPU
+RAM: 1GB
+Public IP: 4.193.226.56
+```
+
+---
+
+# Recent Changes (backend)
+
+This repository has received a set of production-focused improvements and operational fixes. The list below summarizes the new features, stability work, and the root causes and fixes for issues encountered during testing on the Azure VM.
+
+## Feature & operational highlights
+
+- Health & monitoring:
+  - `GET /health` returns `{"status":"ok"}` for quick probes.
+  - Prometheus metrics are exposed at `GET /metrics` (using `prometheus-client`).
+
+- Rate limiting & abuse protection:
+  - `slowapi` integrated for per-IP rate limiting; environment-configurable via `RATE_LIMIT` and `DOWNLOAD_RATE`/`DOWNLOAD_DAILY`.
+  - Example nginx config contains `limit_req` zone to protect the public endpoint.
+
+- Extraction & downloader:
+  - `downloader.py` supports `COOKIEFILE` for authenticated extraction and `PROXY_LIST` for proxy rotation.
+  - Extraction attempts include retry/backoff to mitigate transient YouTube blocks.
+  - `yt-dlp` configured with Deno JS runtime to support JS-challenged pages.
+
+- Streaming & proxying:
+  - New `/proxy` endpoint proxies manifests/segments for a small set of allowed hosts (`googlevideo.com`, `youtube.com`, `ytimg.com`) to avoid browser CORS issues.
+  - Progressive formats (mp4/webm/mkv) are proxied with `Content-Disposition` set so browsers save files.
+  - HLS/DASH manifests are streamed via `ffmpeg` into MP4 and piped to the client when required.
+
+- Logging & diagnostics:
+  - Structured JSON logs via `python-json-logger` and background capture of `ffmpeg` stderr (visible in `journalctl`) to debug mux/segment errors.
+
+## Files added / updated
+
+- `main.py` — FastAPI app with `/analyze`, `/download` (POST & GET wrapper), `/proxy`, `/health`, `/metrics`, CORS, `slowapi` and ffmpeg streaming logic.
+- `downloader.py` — cookie support, proxy list, retries/backoff, improved logging.
+- `requirements.txt` — added `slowapi`, `python-json-logger`, `prometheus-client`.
+- `deploy/streamforge.service` — systemd unit template and drop-ins.
+- `deploy/nginx_streamforge.conf` — nginx site with TLS and rate-limiting guidance.
+- `deploy/refresh_cookies.py` — Playwright cookie refresh utility to generate `/home/streamforge/firefox-cookies.txt`.
+- `DEPLOY.md` — deployment instructions.
+
+These changes keep the server lightweight (no persistent large-media storage) while improving the production-readiness of extraction and streaming.
+
+---
+
+# Server Setup Steps (quick)
+
+Install dependencies:
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-venv git ffmpeg
+```
+
+Create virtualenv and install requirements:
+
+```bash
+python3 -m venv /home/streamforge/venv
+source /home/streamforge/venv/bin/activate
+/home/streamforge/venv/bin/pip install -r /home/streamforge/streamforge-backend/requirements.txt
+```
+
+Deploy and run under systemd (drop-ins provided in `deploy/`):
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart streamforge.service
+sudo journalctl -u streamforge.service -f
+```
+
+Health checks:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/metrics
+```
+
+---
+
+# Recent Bugs & How They Were Solved
+
+This section documents notable issues encountered during integration tests and their fixes.
+
+- Malformed AAC / tiny MP4 files:
+  - Symptom: downloads produced very small MP4 files; `journalctl` showed ffmpeg messages like "Malformed AAC bitstream detected" and "Error muxing a packet".
+  - Root cause: upstream HLS audio streams used ADTS framing that must be converted to MP4-friendly format.
+  - Fix applied: add `-bsf:a aac_adtstoasc` to the ffmpeg command line. `ffmpeg` stderr is captured in logs to verify the fix.
+
+- ffmpeg "Cannot reuse HTTP connection for different host":
+  - Symptom: ffmpeg failed when playlist referenced segments on multiple googlevideo hosts.
+  - Root cause: ffmpeg tried to reuse a single HTTP connection for chunks served from different hostnames.
+  - Fix applied: set `-http_persistent 0` and a `-user_agent` value in the ffmpeg invocation so ffmpeg opens new connections per request and upstream behaves like a browser.
+
+- Browser CORS blocking manifests/segments:
+  - Symptom: browser could not load GoogleVideo manifests/segments directly (CORS preflight failures).
+  - Fix applied: added `GET /proxy` to forward manifest/segment requests for a short allowlist of hosts; frontend rewrites manifest/segment URLs to use `/proxy` when necessary.
+
+- Transient nginx 502 on backend restart:
+  - Symptom: nginx returned 502 while uvicorn was restarting.
+  - Root cause: backend unavailable during restart; nginx proxied while upstream was down.
+  - Mitigation: restart carefully and watch `journalctl`; consider later adding healthcheck-aware reload/smarter socket activation.
+
+---
+
+# ffmpeg Hardening — applied & planned
+
+Applied:
+
+- `-bsf:a aac_adtstoasc` to convert ADTS AAC for MP4 muxing.
+- `-http_persistent 0` to avoid cross-host HTTP connection reuse.
+- `-user_agent "<browser UA>"` so upstream treats requests like a browser.
+- Background logging of `ffmpeg` stderr for diagnostics.
+
+Planned (follow-up):
+
+- Add `-headers 'Connection: close\\r\\n'` to ffmpeg to force connection-close semantics when needed.
+- Add a simple 1–2 attempt retry wrapper around the `ffmpeg` subprocess to recover from transient upstream network errors.
+
+These hardening steps trade a small amount of TCP overhead for much higher reliability when streaming HLS/DASH manifests that reference multiple hosts.
+
+---
+
+# Current State (2026-03-09)
+
+- The FastAPI app runs under systemd (`streamforge.service`) and responds to `/health`, `/analyze`, `/download` and `/proxy`.
+- `downloader.py` uses `COOKIEFILE` when available and `yt-dlp` with Deno runtime where necessary.
+- Frontend updated to open backend `/download` URLs in a new tab and to proxy manifest/segment requests through `/proxy` for allowed hosts.
+- Rate limiting is in place via `slowapi` and the nginx template includes `limit_req` directives.
+
+# Next steps & recommendations
+
+1. Lock CORS to the production frontend origin (currently permissive for testing).
+2. Consider adding the `Connection: close` header + ffmpeg retry wrapper if intermittent host-switch errors reappear.
+3. Add persistent quota/store if daily download quotas are required (currently per-process limits via `slowapi`).
+4. Configure nginx with TLS (see `deploy/nginx_streamforge.conf`) and point your domain to the VM; obtain certs with certbot.
+
+If you want, I can implement (2) and deploy it, or help with nginx/TLS and setting `VITE_API_URL` in Vercel.
+
+# StreamForge — Full Project Context
+
+## Project Overview
+
+**StreamForge** is a web application that analyzes YouTube videos or playlists and provides direct downloadable streams in different quality formats.
+
+The system consists of:
+
+- React frontend (Vite)
+- FastAPI backend
+- yt-dlp extraction engine
+- Azure VPS backend hosting
+- Vercel frontend hosting
+
+The architecture separates **UI and extraction logic** so that the browser only interacts with a lightweight API while heavy video processing happens on the server.
+
+---
+
+# System Architecture
+
+```
+User Browser
+│
+│
+▼
+Frontend (React + Vite)
+Hosted on Vercel
+https://streamforge.vercel.app
+
+│
+│ HTTP API
+▼
+Backend (FastAPI)
+Azure Ubuntu VPS
+http://4.193.226.56:8000
+
+│
+│
+▼
+yt-dlp + ffmpeg
+YouTube extraction
+```
+
+---
+
+# Core Idea
+
+Instead of downloading videos server-side, the backend:
+
+1. extracts **video stream URLs**
+2. sends them to the frontend
+3. the browser downloads directly from YouTube CDN
+
+Advantages:
+
+- no server bandwidth cost
+- faster downloads
+- minimal server load
+
+---
+
+# Technology Stack
+
+## Frontend
+
+```
+React
+Vite
+Fetch API
+Vanilla CSS (JS style objects)
+```
+
+## Backend
+
+```
+Python 3.12
+FastAPI
+Uvicorn
+yt-dlp
+ffmpeg
+```
+
+## Infrastructure
+
+```
+Frontend Hosting → Vercel
+Backend Hosting → Azure VPS
+OS → Ubuntu 24.04 LTS
+```
+
+---
+
+# Repository Structure
+
+```
+streamforge/
+│
+├── frontend/
+│ ├── src/
+│ │ └── App.jsx
+│ ├── index.html
+│ └── package.json
+│
+├── backend/
+│ ├── main.py
+│ ├── downloader.py
+│ └── requirements.txt
+│
+└── context.md
+```
+
+---
+
+# Backend Architecture
+
+## FastAPI Application
+
+Main server file:
+
+```
+backend/main.py
+```
+
+Responsibilities:
+
+- expose API endpoints
+- handle request validation
+- configure CORS
+- call downloader logic
+
+---
+
+## API Routes
+
+### Root
+
+```
+GET /
+```
+
+Response
+
+```json
+{
+  "message": "StreamForge API running"
+}
+```
+
+---
+
+### Analyze Video
+
+```
+POST /analyze
+```
+
+Request
+
+```json
+{
+  "url": "youtube link"
+}
+```
+
+Response Types:
+
+#### Video
+
+```json
+{
+  "type": "video",
+  "title": "",
+  "thumbnail": "",
+  "formats": []
+}
+```
+
+#### Playlist
+
+```json
+{
+  "type": "playlist",
+  "title": "",
+  "videos": []
+}
+```
+
+---
+
+# downloader.py
+
+File:
+
+```
+backend/downloader.py
+```
+
+Responsible for:
+
+- extracting metadata
+- detecting playlists
+- filtering formats
+- returning usable stream URLs
+
+Uses:
+
+```
+yt_dlp.YoutubeDL()
+```
+
+Important options:
+
+```
+skip_download=True
+quiet=True
+http_headers=user-agent
+ignoreerrors=True
+nocheckcertificate=True
+```
+
+---
+
+# Video Format Filtering
+
+Raw yt-dlp output contains many duplicate streams.
+
+Filtering logic:
+
+```
+skip audio-only formats
+skip duplicates
+sort by resolution
+```
+
+Example returned format:
+
+```json
+{
+  "quality": "1080p",
+  "ext": "mp4",
+  "url": "direct stream url",
+  "filesize": 10000000
+}
+```
+
+---
+
+# Playlist Handling
+
+If the video is a playlist:
+
+```
+info["_type"] == "playlist"
+```
+
+The backend returns a list of video entries:
+
+```json
+{
+  "type": "playlist",
+  "title": "",
+  "videos": [
+    {
+      "title": "",
+      "url": "youtube link"
+    }
+  ]
+}
+```
+
+Frontend then analyzes each video separately when downloading.
+
+---
+
+# Frontend Architecture
+
+Main UI file:
+
+```
+frontend/src/App.jsx
+```
+
+Core responsibilities:
+
+```
+URL input
+API request
+video player
+format selector
+download logic
+playlist grid
+```
+
+---
+
+# Frontend Environment Variables
+
+```
+VITE_API_URL
+```
+
+Example:
+
+```
+VITE_API_URL=http://4.193.226.56:8000
+```
+
+Used like:
+
+```js
+const API = import.meta.env.VITE_API_URL;
+```
+
+---
+
+# Frontend UI Flow
+
+### 1 User pastes YouTube link
+
+Input field:
+
+```
+Paste YouTube URL
+```
+
+User clicks **Analyze**.
+
+---
+
+### 2 API request
+
+Frontend sends:
+
+```
+POST /analyze
+```
+
+---
+
+### 3 Backend returns formats
+
+Frontend renders:
+
+```
+video player
+quality selector
+download button
+```
+
+---
+
+# Video Player
+
+HTML5 player:
+
+```jsx
+<video src={selectedFormat.url} controls />
+```
+
+This streams directly from YouTube.
+
+# Smart Download System
+
+Frontend creates a temporary link:
+
+```js
+const a = document.createElement("a");
+a.href = streamUrl;
+a.target = "_blank";
+a.download = filename;
+```
+
+Advantages:
+
+- no memory crash
+- no buffering
+- browser handles download
+
+# Playlist UI
+
+Playlist videos render in a grid:
+
+- thumbnail
+- title
+- download button
+
+Thumbnail source:
+
+```
+https://img.youtube.com/vi/VIDEO_ID/hqdefault.jpg
+```
+
+# Azure VPS Infrastructure
+
+Backend is deployed on:
+
+Microsoft Azure Virtual Machine
+
+Specs:
+
 ---
 
 # Recent Changes (backend)

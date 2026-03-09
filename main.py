@@ -350,8 +350,18 @@ def proxy(url: str, request: Request):
             except Exception:
                 pass
 
+    # Preserve important headers and the upstream status code so the browser
+    # can correctly handle range requests (206 Partial Content) and streaming
     resp_headers = {}
-    if upstream.headers.get("Content-Length"):
-        resp_headers["Content-Length"] = upstream.headers.get("Content-Length")
+    for h in ("Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control", "Content-Encoding"):
+        v = upstream.headers.get(h)
+        if v:
+            resp_headers[h] = v
 
-    return StreamingResponse(_gen(), media_type=content_type, headers=resp_headers)
+    # Ensure Content-Type is present
+    if content_type:
+        resp_headers["Content-Type"] = content_type
+
+    status_code = getattr(upstream, "status_code", 200) or 200
+
+    return StreamingResponse(_gen(), status_code=status_code, media_type=content_type, headers=resp_headers)
